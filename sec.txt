@@ -1,0 +1,1244 @@
+PROCEED AT YOUR OWN RISK !! 
+
+Threats model
+
+    Why do you want to secure your server?
+    How much security do you want or not want?
+    How much convenience are you willing to compromise for security and vice-versa?
+    What are the threats you want to protect against? What are the specifics to your situation? For example:
+        Is physical access to your server/network a possible attack vector?
+        Will you be opening ports on your router so you can access your server from outside your home?
+        Will you be hosting a file share on your server that will be mounted on a desktop class machine? What is the possibility of the desktop machine getting infected and, in turn, infecting the server?
+    Do you have a means of recovering if your security implementation locks you out of your own server? For example, you disabled root login or password protected GRUB.
+
+
+Linux kernel and its related files are in /boot directory which is by default as read-write. Changing it to read-only reduces the risk of unauthorized modification of critical boot files. We need to edit /etc/fstab file and insert the line below<
+
+LABEL=/boot     /boot     ext2     defaults,ro     1 2
+
+   dpkg-reconfigure tzdata
+#5.4.3 Ensure default group for the root account is GID 0 (Scored)
+
+usermod -g 0 root
+
+#5.4.4 Ensure default user umask is 027 or more restrictive (Scored)
+
+useradd -D -f 30
+
+#5.4.2 Ensure system accounts are non-login (Scored)
+
+for user in `awk -F: '($3 < 1000) {print $1 }' /etc/passwd`; do
+  if [ $user != "root" ]; then
+    usermod -L $user
+  if [ $user != "sync" ] && [ $user != "shutdown" ] && [ $user != "halt" ]; then
+    usermod -s /usr/sbin/nologin $user
+  fi
+  fi
+done
+
+sed -i s/umask\ 022/umask\ 027/g /etc/init.d/rc
+
+sudo cp --preserve /etc/profile /etc/profile.$(date +"%Y%m%d%H%M%S")
+sudo cp --preserve /etc/bash.bashrc /etc/bash.bashrc.$(date +"%Y%m%d%H%M%S")
+sudo cp --preserve /etc/login.defs /etc/login.defs.$(date +"%Y%m%d%H%M%S")
+sudo cp --preserve /root/.bashrc /root/.bashrc.$(date +"%Y%m%d%H%M%S")
+echo -e "\numask 0027         # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")" | sudo tee -a /etc/profile /etc/bash.bashrc
+echo -e "\nUMASK 0027         # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")" | sudo tee -a /etc/login.defs
+echo -e "\numask 0077         # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")" | sudo tee -a /root/.bashrc
+echo -e "\numask 0077         # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")" | sudo tee -a /root/.bashrc
+echo 'install usb-storage /bin/true' >> /etc/modprobe.d/disable-usb-storage.conf
+echo "blacklist firewire-core" >> /etc/modprobe.d/firewire.conf
+echo "blacklist thunderbolt" >> /etc/modprobe.d/thunderbolt.conf
+
+
+Install ntp if you need it.
+
+On Debian based systems:
+
+sudo apt install ntp
+
+Make a backup of the NTP client's configuration file /etc/ntp.conf:
+
+sudo cp --preserve /etc/ntp.conf /etc/ntp.conf.$(date +"%Y%m%d%H%M%S")
+
+
+sudo sed -i -r -e "s/^((server|pool).*)/# \1         # commented by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")/" /etc/ntp.conf
+echo -e "\npool pool.ntp.org iburst         # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")" | sudo tee -a /etc/ntp.conf
+
+sudo service ntp restart
+
+
+
+###### Start IPTables Setup #######
+echo "Installing the Persistent IPTables package"
+if ! apt-get -qq -y install iptables-persistent; then
+  bail "Unable to install persistent iptables package"
+fi
+
+cp /etc/iptables/rules.v4 /etc/iptables/rules.v4.orig
+cp ${iptable_cfg_file} /etc/iptables/rules.v4
+if grep "%APPLICATION_SERVER_IP%" /etc/iptables/rules.v4 > /dev/null; then
+  echo "Enter the IP address of the Application Server"
+  read application_server_ip
+  sed -i.bak "s/%APPLICATION_SERVER_IP%/${application_server_ip}/g" /etc/iptables/rules.v4
+  rm /etc/iptables/rules.v4.bak
+fi
+
+if ! service netfilter-persistent reload; then
+  log_error "Unable to reload the IPTables configuration. Everything appears to be okay otherwise. You'll just need to figure out why the reload failed"
+fi
+####### End IPTables Setup #######to ensure a secure environment we need to keep an eyes on our logs !
+sudo /usr/sbin/logwatch --output stdout --format text --range yesterday --service all
+sudo cp --preserve /etc/cron.daily/00logwatch /etc/cron.daily/00logwatch.$(date +"%Y%m%d%H%M%S")
+sudo chmod -x /etc/cron.daily/00logwatch.*
+sudo sed -i -r -e "s,^($(sudo which logwatch).*?),# \1         # commented by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")\n$(sudo which logwatch) --output mail --format html --mailto root --range yesterday --service all         # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")," /etc/cron.daily/00logwatch
+sudo apt install apt-transport-https ca-certificates host
+sudo wget -O - https://packages.cisofy.com/keys/cisofy-software-public.key | sudo apt-key add -
+sudo echo "deb https://packages.cisofy.com/community/lynis/deb/ stable main" | sudo tee /etc/apt/sources.list.d/cisofy-lynis.list
+sudo apt update
+sudo apt install lynis host
+
+
+
+create an Ed25519 key with ssh-keygen:
+
+ ssh-keygen -t ed25519
+sudo groupadd sudousers
+sudo groupadd jailedusers
+sudo groupadd sshusers
+ sudo usermod -a -G sshusers user1
+ sudo cp --preserve /etc/sudoers /etc/sudoers.$(date +"%Y%m%d%H%M%S")
+ sudo visudo
+ sudo cp --preserve /etc/ssh/sshd_config /etc/ssh/sshd_config.$(date +"%Y%m%d%H%M%S")
+ sudo sed -i -r -e '/^#|^$/ d' /etc/ssh/sshd_config
+ %sudousers   ALL=(ALL:ALL) ALL
+
+ echo tty1 > /etc/securetty
+    chmod 0600 /etc/securetty
+    chmod 700 /root
+    chmod 600 /boot/grub/grub.cfg
+    #Remove AT and Restrict Cron
+    apt purge at
+    apt install -y libpam-cracklib
+    echo ""
+    echo " Securing Cron "
+    spinner
+    touch /etc/cron.allow
+    chmod 600 /etc/cron.allow
+    awk -F: '{print $1}' /etc/passwd | grep -v root > /etc/cron.deny
+    echo ""
+    echo -n " Do you want to Disable USB Support for this Server? (y/n): " ; read usb_answer
+    if [ "$usb_answer" == "y" ]; then
+       echo ""
+       echo "Disabling USB Support"
+       spinner
+       echo "blacklist usb-storage" | sudo tee -a /etc/modprobe.d/blacklist.conf
+       update-initramfs -u
+
+
+echo "* hard core 0" >> /etc/security/limits.conf
+chown root:root /etc/motd /etc/issue /etc/issue.net
+chmod 644 /etc/motd /etc/issue /etc/issue.net
+apt-get remove telnet
+echo "ALL: 10.0.0.0/255.0.0.0" >> /etc/hosts.allow
+echo "ALL: 192.168.0.0/255.255.0.0" >> /etc/hosts.allow
+echo "ALL: 172.16.0.0/255.240.0.0" >> /etc/hosts.allow
+
+#3.4.3 Ensure /etc/hosts.deny is configured (Scored)
+
+echo "ALL: ALL" >> /etc/hosts.deny
+
+#3.4.4 Ensure permissions on /etc/hosts.allow are configured (Scored)
+
+chown root:root /etc/hosts.allow
+chmod 644 /etc/hosts.allow
+
+#3.4.5 Ensure permissions on /etc/hosts.deny are 644 (Scored)
+
+chown root:root /etc/hosts.deny
+
+
+chmod 644 /etc/hosts.deny
+
+````
+#!/bin/bash 
+for user in `awk -F: '($3 < 500) {print $1 }' /etc/passwd`; do
+if [ $user != "root" ] 
+then 
+/usr/sbin/usermod -L $user 
+if [ $user != "sync" ] && [ $user != "shutdown" ] && [ $user != "halt" ] 
+then /usr/sbin/usermod -s /sbin/nologin $user 
+fi 
+fi 
+done
+````
+
+#nano /etc/modprobe.d/blacklist.conf
+
+When the file opens, then add the following line at the end of the file (save and close):
+
+blacklist usb_storage
+
+After this, open the rc.local file:
+
+#nano /etc/rc.local
+
+Finally, add the following two lines:
+
+modprobe -r usb_storage
+exit 0
+
+ 
+systems should be separated into different partitions for this will prevent lot's of unwanted executions and manipulations
+
+     /
+     /boot
+     /usr
+     /home
+     /tmp
+     /var
+     /opt
+	
+	Make sure sensitives files are owned by root and with the rights permissions
+
+      dd if=/dev/zero of=/usr/tmpDISK bs=1024 count=2048000
+      mkdir /tmpbackup
+      cp -Rpf /tmp /tmpbackup
+      mount -t tmpfs -o loop,noexec,nosuid,rw /usr/tmpDISK /tmp
+      chmod 1777 /tmp
+      cp -Rpf /tmpbackup/* /tmp/
+      rm -rf /tmpbackup
+      echo "/usr/tmpDISK  /tmp    tmpfs   loop,nosuid,nodev,noexec,rw  0 0" >> /etc/fstab
+      sudo mount -o remount /tmp
+
+
+chmod o= /etc/ftpusers 
+chmod o= /etc/group 
+chmod o= /etc/hosts
+chmod o= /etc/hosts.allow 
+chmod o= /etc/hosts.equiv
+chmod o= /etc/hosts.lpd 
+chmod o= /etc/inetd.conf
+chmod o= /etc/login.access 
+chmod o= /etc/login.conf 
+chmod o= /etc/newsyslog.conf
+chmod o= /etc/rc.conf 
+chmod o= /etc/ssh/sshd_config 
+chmod o= /etc/sysctl.conf
+chmod o= /etc/syslog.conf 
+chmod o= /etc/ttys 
+chmod o= /etc/fstab
+chown root:root /etc/anacrontab
+chmod og-rwx /etc/anacrontab
+chown root:root /etc/crontab
+chmod og-rwx /etc/crontab
+chown root:root /etc/cron.hourly
+chmod og-rwx /etc/cron.hourly
+chown root:root /etc/cron.daily
+chmod og-rwx /etc/cron.daily
+chown root:root /etc/cron.weekly
+chmod og-rwx /etc/cron.weekly
+chown root:root /etc/cron.monthly
+chmod og-rwx /etc/cron.monthly
+chown root:root /etc/cron.d
+chmod og-rwx /etc/cron.d
+chown root:root /etc/ssh/sshd_config
+chmod 600 /etc/ssh/sshd_config
+chown root:root /etc/grub.conf
+chown root:root /etc/fstab
+chmod og-rwx /etc/grub.conf
+chmod 710 /root "or" chmod 700 /root
+chmod o= /var/log 
+chmod 644 /etc/passwd
+chown root:root /etc/passwd
+chmod 644 /etc/group
+chown root:root /etc/group
+chmod 600 /etc/shadow
+chown root:root /etc/shadow
+chmod 600 /etc/gshadow
+chown root:root /etc/gshadow	
+chmod 700 /var/log/audit
+chmod 740 /etc/rc.d/init.d/iptables
+chmod 740 /sbin/iptables
+chmod -R 700 /etc/skel
+chmod 600 /etc/rsyslog.conf
+chmod 640 /etc/security/access.conf
+chmod 600 /etc/sysctl.conf
+chown root:root /etc/anacrontab
+chmod og-rwx /etc/anacrontab
+chown root:root /etc/crontab
+chmod og-rwx /etc/crontab
+chown root:root /etc/cron.hourly
+chmod og-rwx /etc/cron.hourly
+chown root:root /etc/cron.daily
+chmod og-rwx /etc/cron.daily
+chown root:root /etc/cron.weekly
+chmod og-rwx /etc/cron.weekly
+chown root:root /etc/cron.monthly
+chmod og-rwx /etc/cron.monthly
+chown root:root /etc/cron.d
+chmod og-rwx /etc/cron.d
+touch /etc/cron.allow
+touch /etc/at.allow
+
+chmod og-rwx /etc/cron.allow /etc/at.allow
+chown root:root /etc/cron.allow /etc/at.allow
+chmod -R g-wx,o-rwx /var/log/*
+chown root:root /boot/grub/grub.cfg
+chmod og-rwx /boot/grub/grub.cfg
+
+
+chown root:root /etc/cron*
+chmod og-rwx /etc/cron*
+
+	sed -i "/SINGLE/s/sushell/sulogin/" /etc/sysconfig/init 
+	
+Default /etc/passwd for root
+
+root:x:0:0:root:/root:/bin/bash
+
+After disabling root login
+
+root:x:0:0:root:/root:/sbin/nologin
+can be a solutions combined with locking + chattr
+ passwd -l  root
+sed -i -e 's/^root::/root:!:/' /etc/shadow
+
+echo > /etc/secu
+[bob@bobdistro ~]$ sudo reboot
+[sudo] password for bob:
+bob is not in the sudoers file.  This incident will be reported.
+
+However after running ‘visudo’ and editing the sudoers file as below, this becomes possible.
+
+bob     ALL=/usr/sbin/reboot
+retty
+
+usermod -aG wheel $USER
+sed -i '/%wheel/s/^# //' /etc/sudoers
+or
+
+mkdir -p ~/.ssh && sudo chmod -R 700 ~/.ssh/
+
+From your local computer:
+
+scp ~/.ssh/id_rsa.pub example_user@203.0.113.10:~/.ssh/authorized_keys
+
+mkdir ~/.ssh; nano ~/.ssh/authorized_keys
+mkdir -p ~/.ssh && sudo chmod -R 700 ~/.ssh/
+
+systemctl , kernel configuration
+kernel.sysrq = 0
+kernel.core_uses_pid = 1
+kernel.dmesg_restrict = 1
+kernel.panic = 60
+kernel.panic_on_oops = 60
+kernel.perf_event_paranoid = 2
+kernel.randomize_va_space = 2
+kernel.yama.ptrace_scope = 2
+vm.dirty_background_ratio = 5
+vm.dirty_ratio = 10
+net.core.default_qdisc = fq
+kernel.maps_protect = 1
+kernel.ctrl-alt-del = 0
+kernel.unprivileged_bpf_disabled=1
+net.core.bpf_jit_harden=2
+kernel.dmesg_restrict=1
+kernel.kptr_restrict=1
+kernel.kexec_load_disabled = 1
+fs.file-max = 100000
+net.core.netdev_max_backlog = 100000
+net.core.netdev_budget = 50000
+net.core.netdev_budget_usecs = 5000
+net.core.somaxconn = 1024
+net.core.rmem_default = 1048576
+net.core.rmem_max = 16777216
+net.core.wmem_default = 1048576
+net.core.wmem_max = 16777216
+net.core.optmem_max = 65536
+net.ipv4.tcp_rmem = 4096 1048576 2097152
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_max_tw_buckets = 2000000
+net.ipv4.tcp_fin_timeout = 10
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 10
+net.ipv4.tcp_keepalive_probes = 6
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_rfc1337 = 1
+net.ipv4.tcp_fin_timeout = 10
+vm.overcommit_ratio = 50
+vm.overcommit_memory = 0
+vm.mmap_min_addr = 4096
+vm.min_free_kbytes = 65535
+net.ipv4.ip_default_ttl = 255
+net.ipv4.icmp_echo_ignore_all = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.tcp_max_syn_backlog = 2048
+net.unix.max_dgram_qlen = 50
+net.ipv4.conf.default.log_martians = 1
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv4.icmp_echo_ignore_all = 1
+vm.dirty_background_bytes = 4194304
+vm.dirty_bytes = 4194304
+kernel.kptr_restrict = 2
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+fs.suid_dumpable = 0
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+net.ipv4.tcp_challenge_ack_limit = 1000000
+net.ipv4.tcp_invalid_ratelimit = 500
+net.ipv4.tcp_synack_retries = 2
+net.ipv6.conf.all.accept_ra = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.all.use_tempaddr = 2
+net.ipv6.conf.default.accept_ra = 0
+net.ipv6.conf.default.accept_ra_defrtr = 0
+net.ipv6.conf.default.accept_ra_pinfo = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv6.conf.default.accept_source_route = 0
+net.ipv6.conf.default.autoconf = 0
+net.ipv6.conf.default.dad_transmits = 0
+net.ipv6.conf.default.max_addresses = 1
+net.ipv6.conf.default.router_solicitations = 0
+net.ipv6.conf.default.use_tempaddr = 2
+net.ipv6.conf.eth0.accept_ra_rtr_pref = 0
+net.netfilter.nf_conntrack_max = 2000000
+net.netfilter.nf_conntrack_tcp_loose = 0
+kernel.maps_protect = 1 		
+kernel.msgmax = 65535 		
+kernel.msgmnb = 65535 		
+kernel.pid_max = 65535
+kernel.shmall = 268435456 
+kernel.shmmax = 268435456 
+net.core.dev_weight = 64 
+net.core.netdev_max_backlog = 16384
+net.core.optmem_max = 65535
+net.core.rmem_default = 262144
+net.core.rmem_max = 16777216
+net.core.somaxconn = 32768 		
+net.core.wmem_default = 262144 	
+net.core.wmem_max = 16777216 
+net.ipv4.ipfrag_high_thresh = 262144 
+net.ipv4.ipfrag_low_thresh = 196608
+net.ipv4.neigh.default.gc_interval = 30 		
+net.ipv4.neigh.default.gc_thresh1 = 32 	
+net.ipv4.neigh.default.gc_thresh2 = 1024 	
+net.ipv4.neigh.default.gc_thresh3 = 2048 
+net.ipv4.neigh.default.proxy_qlen = 96 		
+net.ipv4.neigh.default.unres_qlen = 6 		
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_intvl = 15 	
+net.ipv4.tcp_keepalive_probes = 5 	
+net.ipv4.tcp_keepalive_time = 1800 		
+net.ipv4.tcp_max_orphans = 16384 		
+net.ipv4.tcp_max_tw_buckets = 1440000 		
+net.ipv4.tcp_moderate_rcvbuf = 1 		
+net.ipv4.tcp_no_metrics_save = 1 		 
+net.ipv4.tcp_orphan_retries = 0 		
+net.ipv4.tcp_reordering = 3 		 
+net.ipv4.tcp_retries1 = 3 		
+net.ipv4.tcp_retries2 = 15 		
+net.ipv4.tcp_rfc1337 = 1 		
+net.ipv4.tcp_rmem = 8192 87380 16777216 
+net.ipv4.tcp_sack = 0 	
+net.ipv4.tcp_slow_start_after_idle = 0 	 
+net.ipv4.udp_wmem_min = 16384 		
+net.ipv6.conf.default.accept_ra_defrtr = 0 		
+net.ipv6.conf.default.accept_ra_pinfo = 0 		
+net.ipv6.conf.default.accept_ra_rtr_pref = 0 		
+net.ipv6.conf.default.accept_ra=0 		
+net.ipv6.conf.default.accept_redirects = 0 		
+net.ipv6.conf.default.accept_source_route = 0 		
+net.ipv6.conf.default.autoconf = 0 		
+net.ipv6.conf.default.dad_transmits = 0 		
+net.ipv6.conf.default.forwarding = 0 		
+net.ipv6.ipa 6frag_high_thresh = 262144 		
+net.ipv6.ip6frag_low_thresh = 196608 		
+# increase system file descriptor limit    
+fs.file-max = 65535
+#Allow for more PIDs 
+kernel.pid_max = 65536
+#Increase system IP port limits
+net.ipv4.ip_local_port_range = 2000 65000
+net.ipv4.tcp_wmem = 8192 65536 16777216
+net.ipv4.udp_rmem_min = 16384
+net.ipv4.udp_wmem_min = 16384
+net.ipv4.tcp_tw_recycle = 0
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_sack = 0
+net.ipv4.tcp_reordering = 3
+net.ipv4.tcp_no_metrics_save = 1
+net.ipv4.tcp_moderate_rcvbuf = 1
+net.ipv4.tcp_orphan_retries = 0
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.conf.lo.rp_filter = 1
+net.ipv4.conf.lo.log_martians = 0
+net.ipv4.conf.eth0.rp_filter = 1
+net.ipv4.conf.eth0.log_martians = 0
+
+
+
+
+
+After adding kernel setting  we will limit connections, brutesforce attempt and block few things
+
+Rate limiting via hashrate
+
+sudo iptables --flush  # start again
+sudo iptables --new-chain RATE-LIMIT
+sudo iptables --append RATE-LIMIT \
+    --match hashlimit \
+    --hashlimit-upto 100/sec \
+    --hashlimit-burst 20 \
+    --hashlimit-name conn_rate_limit \
+    --jump ACCEPT
+sudo iptables --append RATE-LIMIT --jump DROP
+
+
+
+cat << EOF | sudo tee /etc/fail2ban/jail.d/ssh.local
+[sshd]
+2enabled = true
+banaction = ufw
+port = 7882
+filter = sshd
+logpath = %(sshd_log)s
+maxretry = 5
+EOF
+
+
+
+
+
+  $ sudo passwd -S root
+  root P 03/27/2016 0 99999 7 -1
+  $ sudo passwd -dl root
+  passwd: password expiry information changed.
+  $ sudo passwd -S root
+  root L 03/27/2016 0 99999 7 -1
+
+Set the root account shell to bash, the status can be viewed in /etc/passwd:
+
+  $ sudo usermod --shell /bin/bash root
+
+Set up sulogin for Grub rescue mode to allow operation without a root account password
+
+Configure runit to use the sulogin -e option. Create the file /etc/sv/sulogin/conf with this content:
+
+  OPTS="-e"
+
+The conf file will be read by /etc/sv/sulogin/run.
+
+Or if OPTS is not supported in the run file, edit the last line of /etc/sv/sulogin/run to this (although it will be overwritten on subsequent updates of runit and will need to be edited again):
+
+  exec setsid sulogin -e < $tty >$tty 2>&1
+
+This means if there is no root password, rescue mode boots to a root terminal which doesn't require a password. This is potentially insecure if the terminal can be physically accessed by others, although there are numerous other security issues in that situation. If a root password is set, then it will still be requested.
+
+The root default environment in rescue mode could be lacking some elements for normal operation as displayed by the env command:
+
+
+
+
+
+
+
+
+
+
+
+secure your mail
+
+sudo cp --preserve /etc/exim4/exim4.conf.template /etc/exim4/exim4.conf.template.$(date +"%Y%m%d%H%M%S")
+cat << EOF | sudo tee /etc/exim4/exim4.conf.localmacros
+MAIN_TLS_ENABLE = 1
+REMOTE_SMTP_SMARTHOST_HOSTS_REQUIRE_TLS = *
+TLS_ON_CONNECT_PORTS = 465
+REQUIRE_PROTOCOL = smtps
+IGNORE_SMTP_LINE_LENGTH_LIMIT = true
+EOF
+
+sudo sed -i -r -e "/\.ifdef MAIN_TLS_ENABLE/ a # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")\n.ifdef TLS_ON_CONNECT_PORTS\n    tls_on_connect_ports = TLS_ON_CONNECT_PORTS\n.endif\n# end add" /etc/exim4/exim4.conf.template
+
+
+cat << EOF | sudo tee /etc/ufw/applications.d/smtptls
+[SMTPTLS]
+title=SMTP through TLS
+description=This opens up the TLS port 465 for use with SMPT to send e-mails.
+ports=465/tcp
+EOF
+
+sudo ufw allow out smtptls comment 'open TLS port 465 for use with SMPT to send e-mails'
+
+cat << EOF | sudo tee /etc/rsyslog.d/10-iptables.conf
+:msg, contains, "[IPTABLES] " /var/log/iptables.log
+& stop
+EOF
+
+
+
+
+
+  $ env
+  SHELL=/bin/bash
+  USER=root
+  PATH=/usr/bin:/usr/sbin
+  PWD=/root
+  SHLVL=1
+  HOME=/root
+  LOGNAME=root
+  _=/usr/bin/env
+
+This can be amended as desired by creating or editing /root/.bashrc, e.g.:
+
+  # .bashrc
+
+  # If not running interactively, don't do anything
+  [[ $- != *i* ]] && return
+
+  PS1='[\u@\h \W]\$ '
+  export PAGER=less
+  export EDITOR=nano
+  export TERM=xterm
+  export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/bin
+
+ find world writables files on the server
+
+find /dir -xdev -type d \( -perm -0002 -a ! -perm -1000 \) -print
+files without owner
+find /dir -xdev \( -nouser -o -nogroup \) -print
+
+lockdown cronjob 
+
+echo ALL >>/etc/cron.deny
+
+#Make a backup of OpenSSH server's configuration file /etc/ssh/sshd_config and remove comments to make it easier to read:
+
+    sudo cp --preserve /etc/ssh/sshd_config /etc/ssh/sshd_config.$(date +"%Y%m%d%H%M%S")
+    sudo sed -i -r -e '/^#|^$/ d' /etc/ssh/sshd_config
+
+
+Create a group:
+
+sudo groupadd sshusers
+
+Add account(s) to the group:
+
+sudo usermod -a -G sshusers $USER
+
+port 22
+addressfamily any
+listenaddress [::]:22
+listenaddress 0.0.0.0:22
+usepam yes
+logingracetime 30
+x11displayoffset 10
+maxauthtries 2
+maxsessions 2
+clientaliveinterval 300
+clientalivecountmax 0
+streamlocalbindmask 0177
+permitrootlogin no
+ignorerhosts yes
+ignoreuserknownhosts no
+hostbasedauthentication no
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+
+KexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com
+
+# LogLevel VERBOSE logs user's key fingerprint on login. Needed to have a clear audit track of which key was using to log in.
+LogLevel VERBOSE
+
+# Use kernel sandbox mechanisms where possible in unprivileged processes
+# Systrace on OpenBSD, Seccomp on Linux, seatbelt on MacOSX/Darwin, rlimit elsewhere.
+# Note: This setting is deprecated in OpenSSH 7.5 (https://www.openssh.com/txt/release-7.5)
+UsePrivilegeSeparation sandbox
+
+########################################################################################################
+# end settings from https://infosec.mozilla.org/guidelines/openssh#modern-openssh-67 as of 2019-01-01
+########################################################################################################
+
+# don't let users set environment variables
+PermitUserEnvironment no
+
+# Log sftp level file access (read/write/etc.) that would not be easily logged otherwise.
+Subsystem sftp  internal-sftp -f AUTHPRIV -l INFO
+
+# only use the newer, more secure protocol
+Protocol 2
+
+# disable X11 forwarding as X11 is very insecure
+# you really shouldn't be running X on a server anyway
+X11Forwarding no
+
+# disable port forwarding
+AllowTcpForwarding no
+AllowStreamLocalForwarding no
+GatewayPorts no
+PermitTunnel no
+
+# don't allow login if the account has an empty password
+PermitEmptyPasswords no
+
+# ignore .rhosts and .shosts
+IgnoreRhosts yes
+
+# verify hostname matches IP
+UseDNS no
+
+Compression no
+TCPKeepAlive no
+AllowAgentForwarding no
+PermitRootLogin no
+
+# don't allow .rhosts or /etc/hosts.equiv
+HostbasedAuthentication no
+subsystem sftp internal-sftp -f AUTHPRIV -l INFO
+maxstartups 2:30:2
+permittunnel no
+ipqos lowdelay throughput
+rekeylimit 0 0
+permitopen any
+
+sudo cp --preserve /etc/ssh/moduli /etc/ssh/moduli.$(date +"%Y%m%d%H%M%S")
+
+Remove short moduli:
+
+sudo awk '$5 >= 3071' /etc/ssh/moduli | sudo tee /etc/ssh/moduli.tmp
+sudo mv /etc/ssh/moduli.tmp /etc/ssh/moduli
+
+
+
+Steps
+
+    Make a backup of /etc/fstab:
+
+    sudo cp --preserve /etc/fstab /etc/fstab.$(date +"%Y%m%d%H%M%S")
+echo -e "\nproc     /proc     proc     defaults,hidepid=2     0     0         # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")" | sudo tee -a /etc/fstab
+
+sudo sed -i -r -e "s/^(password\s+requisite\s+pam_pwquality.so)(.*)$/# \1\2         # commented by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")\n\1 retry=3 minlen=10 difok=3 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1 maxrepeat=3 gecoschec         # added by $(whoami) on $(date +"%Y-%m-%d @ %H:%M:%S")/" /etc/pam.d/common-password
+
+
+sudo psad -R
+sudo psad --sig-update
+sudo psad -H
+sudo cp --preserve /etc/psad/psad.conf /etc/psad/psad.conf.$(date +"%Y%m%d%H%M%S")
+sudo apt install aide
+sudo cp -p /etc/default/aide /etc/default/aide.$(date +"%Y%m%d%H%M%S")
+sudo cp -pr /etc/aide /etc/aide.$(date +"%Y%m%d%H%M%S")
+sudo aideinit
+sudo aide.wrapper --check
+
+
+# if you are not sure the change worked , verify the configuration with this
+sudo touch /etc/test.sh
+sudo touch /root/test.sh
+sudo aide.wrapper --check
+sudo rm /etc/test.sh
+sudo rm /root/test.sh
+sudo aideinit -y -f
+
+    	
+
+46		
+
+Ensure the following are set in /etc/pam.d/other:
+
+    auth  required pam_deny.so
+    auth   required pam_warn.so
+    account  required pam_deny.so
+    account  required pam_warn.so
+    password  required pam_deny.so
+    password  required pam_warn.so
+    session  required pam_deny.so
+    session  required pam_warn.so
+    session  required pam_deny.so
+
+Warn will report alerts to syslog.
+
+To require strong passwords, in compliance with section 5.18 of the Information Resources Use and Security Policy:
+
+For RHEL 6:
+
+In /etc/pam.d/system-auth, add or change the file as required to read:
+password   required     pam_cracklib.so retry=3 difok=5 minlen=8 lcredit=-1 dcredit=-1 ocredit=-1
+password   sufficient   pam_unix.so sha512 shadow nullok try_first_pass use_authtok remember=10
+password   required     pam_deny.so
+password   required     pam_warn.so
+
+ 
+
+For RHEL 7:
+
+In /etc/security/pwquality.conf, add:
+difok = 5
+minlen = 8
+minclass = 1
+maxrepeat = 0
+maxclassrepeat = 0
+lcredit = -1
+ucredit = 0
+dcredit = -1
+ocredit = -1
+gecoscheck = 1
+
+ 
+
+In /etc/pam.d/system-auth, add or change the file as required to read:
+password    required    pam_pwquality.so try_first_pass local_users_only retry=3 authtok_type=
+password    sufficient  pam_unix.so sha512 shadow try_first_pass use_authtok remember=10
+password    required    pam_deny.so
+
+
+
+Launch Applications with Hardened Malloc
+Systemd Services
+
+To launch individual systemd services with hardened malloc, add a drop-in systemd configuration snippet.
+
+Environment="LD_PRELOAD='/usr/lib/libhardened_malloc.so/libhardened_malloc.so'"
+
+Other Applications
+
+To launch other applications with Hardened Malloc, the LD_PRELOAD environment variable must be edited before starting the application. For example, to launch application-name in this way, run.
+
+LD_PRELOAD='/usr/lib/libhardened_malloc.so/libhardened_malloc.so' application-name
+
+All Applications by Default
+
+Note: This action may break numerous applications such as man, apt or Xorg.
+
+It is possible to make all applications use Hardened Malloc as the default memory allocator. To configure this option, the path to the hardened_malloc.so library must be added to the /etc/ld.so.preload file.
+
+1. Open file /etc/ld.so.preload in an editor with root rights.
+
+(Qubes-Whonix ™: In TemplateVM)
+
+This box uses sudoedit for better security [archive]. This is an example and other tools could also achieve the same goal. If this example does not work for you or if you are not using Whonix, please refer to this link.
+
+sudoedit /etc/ld.so.preload
+
+2. Add the hardened_malloc.so library.
+
+/usr/lib/libhardened_malloc.so/libhardened_malloc.so
+
+3. Save the file.
+
+The procedure is complete.
+Incompatible Applications
+Browsers
+
+Using Hardened Malloc with Tor Browser, Firefox or SecBrowser ™ is difficult and unsupported. [3]
+
+It is unknown whether other browsers can benefit from Hardened Malloc.
+Others
+
+Other applications might not easily benefit from Hardened Malloc for the same reasons outlined in the browsers section above.
+
+Whether an application can benefit from Hardened Malloc or not depends on technical implementation details of the application in question. Vendors of applications will probably know if their application is compatible with Hardened Malloc. Community wiki contributions are most welcome -- please post any additional vendor Q&As here.
+Credits and Source Code
+
+The original [archive] source software is maintained by security researcher, Daniel Micay.
+
+This website [archive] is the software fork [archive] homepage for Hardened Malloc, with a focus on easy installation, added user documentation, and integration with Whonix, Kicksecure, Debian, and other distributions. The Whonix software fork source code can be found here [archive].
+Footnotes
+
+https://github.com/GrapheneOS/hardened_malloc [archive]
+https://github.com/Whonix/hardened_malloc [archive]
+These browsers are all based on Firefox, therefore the following applies equally to each of them. 
+
+
+Make sure no files have no owner specified
+
+    find /dir -xdev \( -nouser -o -nogroup \) -print
+
+Verify no files are world-writeable
+
+    find /dir -xdev -type d \( -perm -0002 -a ! -perm -1000 \) -print
+
+/etc/pam.d/system-login
+
+auth optional pam_faildelay.so delay=4000000
+
+
+/etc/pam.d/system-login
+
+auth required pam_tally2.so deny=3 unlock_time=600 onerr=succeed file=/var/log/tallylog
+
+
+
+/etc/security/limits.conf
+* soft nproc 100
+* hard nproc 200
+* soft nofile 100000
+* hard nofile 100000
+
+
+if you added hardening to /proc in /etc/fstab For user sessions to work correctly, an exception needs to be added for systemd-logind:
+
+/etc/systemd/system/systemd-logind.service.d/hidepid.conf
+
+[Service]
+SupplementaryGroups=proc
+
+
+
+
+
+
+
+ change /etc/rc.securelevel so that the securelevel is 2. Then go through your files and chflags -R schg them. I would do this for most of /etc, all of /bin,/sbin,/usr,/bsd,/boot and sappend on some other files/directories like /root and /altroot and on key logs in /var/log. You may need to hand-tune log rotation. 
+d.) use TCP Wrappers (/etc/hosts.allow,/etc/hosts.deny). /etc/hosts.deny should read: ALL: ALL. Then figure out what you will allow. Also consider turning off inetd entirely by putting inetd_flags=NO in /etc/rc.conf.local There's a way to boobytrap TCP Wrappers that's explained in the man page, but I haven't done it yet.
+
+e.) use mtree -cK sha1digest > snapshot_of_filesystem__on_date once you have everything set up. Then cksum -a sha1 that file. ...as explained in the mtree man page. Make it a cron job, and write a script to diff your snapshots. Also keep the main snapshot offline. This can alert you if key files have been tampered with or accessed by someone other than you or your machine. So it's sort of like a host-based IDS.
+
+f.) deny root login and port forwarding/X11 forwarding in /etc/ssh/sshd_config, especially if you are running sshd!
+
+g.) in /etc/fstab mount /usr ro, and /tmp,/var,/home with noexec Consider whether your user can log into an rksh shell.
+
+cat /dev/srandom | tr -dc [:print:] | fold -w PWD_LENGTH | head -n NUM_OF_PWDS
+
+
+Only root account have UID 0 with full permissions to access the system. Type the following command to display all accounts with UID set to 0:
+# awk -F: '($3 == "0") {print}' /etc/passwd
+
+
+	find / \( -perm -4000 -o -perm -2000 \) -print
+find / -path -prune -o -type f -perm +6000 -ls
+
+b. Identify world writable files
+
+find /dir -xdev -type d \( -perm -0002 -a ! -perm -1000 \) -print
+
+c. Identify Orphaned files and folders
+
+find /dir -xdev \( -nouser -o -nogroup \) -print
+	
+. Keep /boot as read-only
+#See all set user id files:
+find / -perm +4000
+# See all group id files
+find / -perm +2000
+# Or combine both in a single command
+find / \( -perm -4000 -o -perm -2000 \) -print
+find / -path -prune -o -type f -perm +6000 -ls
+
+
+find /dir -xdev -type d \( -perm -0002 -a ! -perm -1000 \) -print
+
+sudo dpkg-statoverride --update --add root sudo 4750 /bin/su
+# Security Policy
+
+## Supported Versions
+
+Use this section to tell people about which versions of your project are
+currently being supported with security updates.
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 5.1.x   | :white_check_mark: |
+| 5.0.x   | :x:                |
+| 4.0.x   | :white_check_mark: |
+| < 4.0   | :x:                |
+
+## Reporting a Vulnerability
+https://wiki.mozilla.org/CA/Forbidden_or_Problematic_Practices
+https://proprivacy.com/guides/super-cookies-flash-cookies
+good references http://kb.mozillazine.org/Category:Security_and_privacy-related_preferences 
+
+http://kb.mozillazine.org/About:config_entries
+
+https://github.com/ghacksuserjs/ghacks-user.js/wiki/Appendix-A---Test-Sites
+https://firefox-source-docs.mozilla.org/toolkit/components/telemetry/index.html
+https://www.mozilla.org/en-US/privacy/firefox/#health-report
+
+You can not view or inspect cookies when in private browsing: https://bugzilla.mozilla.org/show_bug.cgi?id=823941
+When Javascript is enabled, Websites can detect use of Private Browsing mode
+Private browsing breaks Kerberos authentication
+Disables "Containers" functionality (see below)
+"Always use private browsing mode" (browser.privatebrowsing.autostart) disables the possibility to use password manager: https://support.mozilla.org/en-US/kb/usernames-and-passwords-are-not-saved#w_private-browsing
+Installing user.js will remove your browsing history, caches and local storage.
+Installing user.js will remove your saved passwords (https://github.com/pyllyukko/user.js/issues/27)
+Clearing open windows on Firefox exit causes 2 windows to open when Firefox starts https://bugzilla.mozilla.org/show_bug.cgi?id=1334945
+.URL shortcut files will be created with a generic icon
+OCSP leaks your IP and domains you visit to the CA when OCSP Stapling is not available on visited host
+OCSP is vulnerable to replay attacks when nonce is not configured on the OCSP responder
+OCSP adds latency (performance)
+Short-lived certificates are not checked for revocation (security.pki.cert_short_lifetime_in_days, default:10)
+Firefox falls back on plain OCSP when must-staple is not configured on the host certificate
+security.OCSP.require will make the connection fail when the OCSP responder is unavailable
+security.OCSP.require is known to break browsing on some captive portals
+
+
+As seen at:
+  https://whotracks.me/blog/adblockers_performance_study.html
+
+The requests.json.gz file can be downloaded from:
+  https://cdn.cliqz.com/adblocking/requests_top500.json.gz
+
+Copy the file into ./tmp/requests.json.gz
+
+If the file is present when you build uBO using `make-[target].sh` from
+the shell, the resulting package will contain `./assets/requests.json`,
+which will be looked-up by the method below to launch a benchmark
+session.
+
+From uBO's dev console, launch the benchmark:
+  µBlock.staticNetFilteringEngine.benchmark();
+
+The usual browser dev tools can be used to obtain useful profiling
+data, i.e. start the profiler, call the benchmark method from the
+console, then stop the profiler when it completes.
+
+ https://www.theregister.co.uk/2017/08/11/ad_blocker_bypass_code/
+http://raymondhill.net/httpsb/har-parser.html
+
+https://github.com/gorhill/uBlock/wiki/Dynamic-filtering:-Benefits-of-blocking-3rd-party-iframe-tags
+
+https://github.com/gorhill/uBlock/wiki/Dynamic-filtering
+https://github.com/gorhill/uBlock/wiki/Resources-Library#general-purpose-scriptlets
+
+
+
+In the address bar type about:config to open a settings table for additional, expert settings.
+Setting Name 	Default Value 	Suggested Value 	Description
+general.smoothScroll.mouseWheel.durationMinMS 	200 	150 	The other smooth scroll values are 150. The default mouse scroll is way too slow.
+general.smoothScroll.mouseWheel.durationMaxMS 	400 	150 	
+full-screen-api.transition-duration.enter 	200 200 	0 0 	
+full-screen-api.transition-duration.leave 	200 200 	0 0 	
+toolkit.cosmeticAnimations.enabled 	true 	false 	F11 fullscreen slide out animations
+full-screen-api.warning.timeout 	3000 	0 	Fullscreen notification (video fullscreen, website fullscreen)
+How to disable fullscreen fade in fade out animation in Firefox
+
+Set the full-screen-api.transition-duration.enter and full-screen-api.transition-duration.leave settings to 0 0.
+How to disable mouse wheel smooth scrolling in Firefox
+
+Set the general.smoothScroll.mouseWheel.durationMinMS and general.smoothScroll.mouseWheel.durationMaxMS settings to 150 for responsive smooth scrolling.
+How to disable fullscreen slide out animation in Firefox
+
+Set the toolkit.cosmeticAnimations.enabled setting to false.
+How to disable the fullscreen “site is now full screen” notification in Firefox
+
+Set the full-screen-api.warning.timeout setting to 0.
+
+privacy.trackingprotection.enabled;true
+browser.tabs.loadInBackground;false
+webgl.disabled;true
+media.peerconnection.ice.no_host;true
+media.peerconnection.ice.proxy_only;true
+privacy.clearOnShutdown.cookies;true
+network.cookie.lifetimePolicy;2
+network.cookie.thirdparty.sessionOnly;true
+network.cookie.thirdparty.nonsecureSessionOnly;true
+network.http.referer.XOriginPolicy;1
+network.http.referer.XOriginTrimmingPolicy;2
+network.http.referer.userControlPolicy;2
+network.http.referer.defaultPolicy;2
+network.http.referer.defaultPolicy.pbmode;2
+places.history.enabled;false
+browser.storageManager.enabled;true
+dom.storageManager.enabled;true
+dom.caches.enabled;false
+browser.search.suggest.enabled;false
+geo.enabled;false
+camera.control.face_detection.enabled;false
+browser.urlbar.trimURLs;false
+network.proxy.socks_remote_dns;true
+plugin.state.flash;0
+plugin.state.java;0
+network.IDN_show_punycode;true
+network.standard-url.punycode-host;true
+experiments.supported;false
+experiments.enabled;false
+network.allow-experiments;false
+browser.uitour.enabled;false
+datareporting.healthreport.service.enabled;false
+datareporting.healthreport.uploadEnabled;false
+extensions.shield-recipe-client.enabled;false
+network.predictor.enabled;false
+network.http.speculative-parallel-limit;0
+privacy.donottrackheader.enabled;true
+privacy.firstparty.isolate;true
+general.oscpu.override;Linux x86_64
+general.platform.override;Linux x86_64
+general.appversion.override;5.0 (X11)
+general.buildID.override;20100101000000
+general.useragent.locale;en-US
+privacy.sanitize.sanitizeOnShutdown;true
+privacy.sanitize.timeSpan;0
+privacy.clearOnShutdown.offlineApps;true
+privacy.clearOnShutdown.siteSettings;true
+privacy.cpd.offlineApps;true
+privacy.cpd.passwords;true
+privacy.cpd.siteSettings;true
+browser.cache.disk.capacity;0
+browser.cache.disk.smart_size.enabled;false
+browser.cache.disk.enable;false
+signon.rememberSignons;false
+browser.formfill.enable;false
+browser.newtabpage.enabled;false
+browser.newtabpage.enhanced;false
+security.tls.version.max;4
+security.tls.unrestricted_rc4_fallback;false
+security.ssl.treat_unsafe_negotiation_as_broken;true
+dom.enable_performance;false
+offline-apps.allow_by_default;false
+dom.mozTCPSocket.enabled;false
+dom.netinfo.enabled;false
+dom.telephony.enabled;false
+beacon.enabled;false
+browser.send_pings;false
+security.xpconnect.plugin.unrestricted;false
+media.video_stats.enabled;false
+browser.safebrowsing.downloads.remote.enabled;false
+network.captive-portal-service.enabled;false
+browser.sessionstore.privacy_level;2
+security.ask_for_password;2
+security.password_lifetime;1
+security.cert_pinning.enforcement_level;2
+security.pki.sha1_enforcement_level;1
+security.ssl3.dhe_rsa_aes_128_sha;false
+security.ssl3.ecdhe_ecdsa_aes_128_gcm_sha256;false
+security.ssl3.ecdhe_ecdsa_aes_128_sha;false
+security.ssl3.ecdhe_rsa_aes_128_sha;false
+security.ssl3.rsa_des_ede3_sha;false
+browser.link.open_newwindow.restriction;0
+extensions.pocket.enabled;false
+media.eme.enabled;false
+social.enabled;false
+social.directories;
+social.remote-install.enabled;false
+social.share.activationPanelEnabled;false
+social.shareDirectory;
+social.toast-notifications.enabled;false
+social.whitelist;
+browser.tabs.closeWindowWithLastTab;false
+
+(for a full list and explanations, see the user.js file)
+
+if next is true, real navigator.oscpu is revealed, the only benefit is obfuscating clock skew fingerprint:
+
+privacy.resistFingerprinting;true
+
+for Firefox 60:
+
+browser.cache.offline.insecure.enable;false
+
+DNS over HTTPS since Firefox 60:
+
+network.trr.uri;https://doh.securedns.eu/dns-query
+network.trr.bootstrapAddress;146.185.167.43
+network.trr.mode;2
+
+Encrypted SNI since Firefox 65:
+
+network.security.esni.enabled;true
+
+optional:
+
+network.cookie.cookieBehavior;1
+browser.display.use_document_fonts;0
+
+Extensions/addons:
+
+https://addons.mozilla.org/en-US/firefox/addon/privacy-possum/
+
+https://addons.mozilla.org/en-US/firefox/addon/ublock-origin/
+
+https://addons.mozilla.org/en-US/firefox/addon/multi-account-containers/
+about:config container settings for Firefox ESR 52:
+
+privacy.userContext.enabled;true
+privacy.userContext.ui.enabled;true
+privacy.usercontext.about_newtab_segregation.enabled;true
+privacy.userContext.longPressBehavior;2
+
+for Firefox Quantum:
+https://addons.mozilla.org/en-US/firefox/addon/smart-https-revived/
+for Firefox ESR 52:
+https://addons.mozilla.org/en-US/firefox/addon/smart-https/
+
+https://addons.mozilla.org/en-US/firefox/addon/canvasblocker/
+
+https://addons.mozilla.org/en-US/firefox/addon/privacy-settings/
+
+for Firefox Quantum:
+https://addons.mozilla.org/en-US/firefox/addon/user-agent-string-switcher/
+for Firefox ESR 52:
+https://addons.mozilla.org/en-US/firefox/addon/user-agent-string-switcher/versions/0.1.4
+Mozilla/5.0 (X11; Linux x86_64; rv:66.0) Gecko/20100101 Firefox/66.0
+
+https://addons.mozilla.org/en-US/firefox/addon/dnssec/
+
+https://addons.mozilla.org/en-US/firefox/addon/google-search-link-fix/
+
+https://addons.mozilla.org/en-US/firefox/addon/terms-of-service-didnt-read/
+
+https://addons.mozilla.org/en-US/firefox/addon/smart-referer/
+
+https://addons.mozilla.org/en-US/firefox/addon/cookie-autodelete/
+
+optional:
+https://addons.mozilla.org/en-US/firefox/addon/css-exfil-protection/
+
+https://addons.mozilla.org/en-US/firefox/addon/umatrix/
+
+https://addons.mozilla.org/en-US/firefox/addon/decentraleyes/
+
+https://addons.mozilla.org/en-US/firefox/addon/google-search-link-fix/
+
+https://addons.mozilla.org/en-US/firefox/addon/ecleaner-forget-button/
+
+https://addons.mozilla.org/en-US/firefox/addon/clearurls/
+
+https://addons.mozilla.org/en-US/firefox/addon/neat-url/
+
+for Firefox Quantum:
+https://addons.mozilla.org/en-US/firefox/addon/temporary-containers/
+
+for Firefox ESR 52:
+https://addons.mozilla.org/en-US/firefox/addon/web-developer/versions/1.2.13
+for Firefox Quantum:
+https://addons.mozilla.org/en-US/firefox/addon/web-developer/
+
+
+https://feeding.cloud.geek.nz/posts/how-tracking-protection-works-in-firefox/
+https://wiki.mozilla.org/Services/TrackingProtection/Shavar_Server_-_Testing
+test ur browser http://raymondhill.net/ublock/tiles1.html
+http://www.filldisk.com/
+https://html5test.com/
+https://itisatrap.org/firefox/its-a-trap.html
+https://browseraudit.com/#
+https://ooni.torproject.org/nettest/
+https://samy.pl/evercookie/
+https://net.ipcalf.com/
+https://cure53.de/leak/onion.php
+https://panopticlick.eff.org/
+https://audiofingerprint.openwpm.com/
+https://mozilla.github.io/webrtc-landing/gum_test.html
+http://uniquemachine.org/
+http://raymondhill.net/ublock/tiles1.html
